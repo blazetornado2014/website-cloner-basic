@@ -1,103 +1,130 @@
-import Image from "next/image";
+"use client"; 
 
-export default function Home() {
+import { useState, FormEvent } from 'react';
+
+interface ScrapedData {
+  requested_url: string;
+  title?: string | null;
+  headings_h1: string[];
+  paragraphs: string[];
+}
+
+interface ApiError {
+  detail: string | { msg: string; type: string }[] ; // FastAPI can return simple string or structured errors
+}
+
+export default function ScraperPage() {
+  const [urlToScrape, setUrlToScrape] = useState<string>('');
+  const [scrapedContent, setScrapedContent] = useState<ScrapedData | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!urlToScrape) {
+      setError('Please enter a URL to scrape.');
+      return;
+    }
+
+    setIsLoading(true);
+    setScrapedContent(null);
+    setError(null);
+
+    const backendApiUrl = process.env.NEXT_PUBLIC_SCRAPER_API_URL || 'http://127.0.0.1:8000';
+
+    try {
+      const response = await fetch(
+        `${backendApiUrl}/scrape-website?url_to_scrape=${encodeURIComponent(urlToScrape)}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData: ApiError = await response.json();
+        let errorMessage = `Error ${response.status}: `;
+        if (typeof errorData.detail === 'string') {
+          errorMessage += errorData.detail;
+        } else if (Array.isArray(errorData.detail)) {
+          // Handle FastAPI validation errors
+          errorMessage += errorData.detail.map(err => `${err.msg} (for ${ (err as any).loc ? (err as any).loc.join('.') : 'input'})`).join(', ');
+        } else {
+          errorMessage += response.statusText;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data: ScrapedData = await response.json();
+      setScrapedContent(data);
+    } catch (err: any) {
+      console.error('Scraping failed:', err);
+      setError(err.message || 'An unexpected error occurred. Check the console.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
+    <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif', maxWidth: '800px', margin: '0 auto' }}>
+      <h1>Website Scraper</h1>
+      <form onSubmit={handleSubmit} style={{ marginBottom: '20px' }}>
+        <input
+          type="url" //basic browser validation
+          value={urlToScrape}
+          onChange={(e) => setUrlToScrape(e.target.value)}
+          placeholder="Enter website URL (e.g., https://example.com)"
+          required
+          style={{ width: '70%', padding: '10px', marginRight: '10px', border: '1px solid #ccc', borderRadius: '4px' }}
         />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+        <button
+          type="submit"
+          disabled={isLoading}
+          style={{ padding: '10px 15px', backgroundColor: isLoading ? '#ccc' : '#0070f3', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+        >
+          {isLoading ? 'Scraping...' : 'Scrape Website'}
+        </button>
+      </form>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+      {error && (
+        <div style={{ color: 'red', border: '1px solid red', padding: '10px', marginBottom: '20px', borderRadius: '4px' }}>
+          <strong>Error:</strong> {error}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      )}
+
+      {scrapedContent && (
+        <div style={{ border: '1px solid #eee', padding: '15px', borderRadius: '4px', backgroundColor: '#f9f9f9', color: 'black' }}>
+          <h2>Scraped Content from: <a href={scrapedContent.requested_url} target="_blank" rel="noopener noreferrer">{scrapedContent.requested_url}</a></h2>
+          {scrapedContent.title && <p><strong>Title:</strong> {scrapedContent.title}</p>}
+
+          {scrapedContent.headings_h1 && scrapedContent.headings_h1.length > 0 && (
+            <div>
+              <h3>H1 Headings:</h3>
+              <ul>
+                {scrapedContent.headings_h1.map((h1, index) => (
+                  <li key={`h1-${index}`}>{h1}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {scrapedContent.paragraphs && scrapedContent.paragraphs.length > 0 && (
+            <div>
+              <h3>Paragraphs:</h3>
+              <ul>
+                {scrapedContent.paragraphs.map((p, index) => (
+                  <li key={`p-${index}`}>{p}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {!scrapedContent.title && scrapedContent.headings_h1.length === 0 && scrapedContent.paragraphs.length === 0 && (
+            <p>No specific content (title, H1s, paragraphs) extracted with current selectors.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
