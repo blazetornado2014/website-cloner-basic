@@ -18,6 +18,8 @@ export default function ScraperPage() {
   const [scrapedContent, setScrapedContent] = useState<ScrapedData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [llmHtml, setLlmHtml] = useState<string>('');
+  const [isCloning, setIsCloning] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -67,6 +69,28 @@ export default function ScraperPage() {
     }
   };
 
+  const handleCloneWebsite = async () => {
+  if (!urlToScrape) return;
+  
+  setIsCloning(true);
+  try {
+    const response = await fetch('http://127.0.0.1:8000/clone-website', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url: urlToScrape }),
+    });
+    
+    const data = await response.json();
+    setLlmHtml(data.generated_html);
+  } catch (error) {
+    console.error('Error cloning website:', error);
+  } finally {
+    setIsCloning(false);
+  }
+};
+
   return (
     <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif', maxWidth: '800px', margin: '0 auto' }}>
       <h1>Website Scraper</h1>
@@ -86,6 +110,14 @@ export default function ScraperPage() {
         >
           {isLoading ? 'Scraping...' : 'Scrape Website'}
         </button>
+        <button
+  onClick={handleCloneWebsite}
+  disabled={isCloning}
+  type="button"
+  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-green-300"
+>
+  {isCloning ? 'Generating with AI...' : 'Clone with AI'}
+</button>
       </form>
 
       {error && (
@@ -96,7 +128,6 @@ export default function ScraperPage() {
 
       {scrapedContent && (
         <div style={{ border: '1px solid #eee', padding: '15px', borderRadius: '4px', backgroundColor: '#f9f9f9', color: 'black' }}>
-          <h2>Scraped Content from: <a href={scrapedContent.requested_url} target="_blank" rel="noopener noreferrer">{scrapedContent.requested_url}</a></h2>
           {scrapedContent.title && <p><strong>Title:</strong> {scrapedContent.title}</p>}
 
           {scrapedContent.headings_h1 && scrapedContent.headings_h1.length > 0 && (
@@ -125,6 +156,15 @@ export default function ScraperPage() {
           )}
         </div>
       )}
+      {llmHtml && (
+  <div className="mt-8">
+    <h2 className="text-xl font-bold mb-4">AI-Generated Version:</h2>
+    <div 
+      className="border p-4 bg-gray-50 rounded"
+      dangerouslySetInnerHTML={{ __html: llmHtml.replace(/```html\n?/g, '').replace(/\n?```/g, '') }}
+    />
+  </div>
+)}
     </div>
   );
 }
