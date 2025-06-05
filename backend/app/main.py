@@ -1,30 +1,57 @@
-from fastapi import FastAPI, HTTPException, Query;
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from pydantic import BaseModel, HttpUrl
 from typing import List, Optional
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
+import cssutils
+import logging
+
+cssutils.log.setLevel(logging.CRITICAL) 
+logging.basicConfig(level=logging.INFO)
 
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+def configure_gemini_api():
+    try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            logging.error("GEMINI_API_KEY environment variable is not set")
+            raise ValueError("Missing required environment variable: GEMINI_API_KEY")
+        
+        genai.configure(api_key=api_key)
+        logging.info("Gemini API configured successfully")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Failed to configure Gemini API: {e}")
+        raise
 
+configure_gemini_api()
 CLONE_WEBSITE_PROMPT = """
-You are an expert web developer who replicates websites with 100% accuracy. Your current task is to clone a website's content and structure into a new HTML document. The goal is to create the same exact website layout with the content provided to you. You will receive the title, headings, and paragraphs from the original website. Your output should be a complete HTML document that replicates the original website's content and structure.
-You have access to the original website's URL as well. Access the website and see how it is structured to replicate it accurately.
-If you need to access images or other resources, assume they are hosted at the same domain as the original URL and fetch them. If image cannot be retrieved, use placeholder image / icon.
+You are an expert web developer who replicates websites with 100% accuracy. Clone this website with all its styles and structure.
 
-Requirements:
-- Keep the same content structure and hierarchy
-- Ensure all the content is displayed correctly
+Original URL: {url}
 
-Website checklist to clone:
+CSS Styles Found:{all_styles}  
+
+Inline Styles: {inline_styles}  
+
+DOM Structure: {dom_structure}
+Content:
 Title: {title}
 Headings: {headings}
 Paragraphs: {paragraphs}
 
+Create a complete HTML document that:
+1. Includes all the CSS styles (in <style> tags)
+2. Preserves the DOM structure and hierarchy
+3. Maintains all inline styles
+4. Keeps the same visual appearance
+5. If you cannot find a specific style, use a default style that matches the original as closely as possible.
+6. If you cannot find an image, use a placeholder image.
 """
 
 app = FastAPI(
@@ -85,9 +112,44 @@ def perform_scrape(target_url: str) -> ScrapedPageInfo:
         raise HTTPException(status_code=503, detail=f"Failed to fetch URL {target_url}: {str(e)}")
     except Exception as e:
         # Log the full error for debugging on the server
-        print(f"An unexpected error occurred while scraping {target_url}: {str(e)}")
+        logging.error(f"An unexpected error occurred while scraping {target_url}: {str(e)}")        
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred during scraping. Please check server logs.")
 
+def extract_all_styles(soup, base_url):
+    """Extract inline styles, style tags, and linked stylesheets"""
+    all_css = []
+    
+    for style_tag in soup.find_all('style'):
+        if style_tag.string:
+            all_css.append(style_tag.string)
+    
+    for link in soup.find_all('link', rel='stylesheet'):
+        href = link.get('href')
+        if href:
+            try:
+                # Handle relative URLs
+                if not href.startswith(('http://', 'https://')):
+                    from urllib.parse import urljoin
+                    href = urljoin(base_url, href)
+                
+                css_response = requests.get(href, timeout=5)
+                if css_response.status_code == 200:
+                    all_css.append(f"/* From {href} */\n{css_response.text}")
+            except:
+                pass
+    
+    return '\n'.join(all_css)
+
+def preserve_dom_structure(element):
+    """Convert BeautifulSoup element to dict preserving structure"""
+    if isinstance(element, Tag):
+        return {
+            'tag': element.name,
+            'attrs': dict(element.attrs),
+            'text': element.get_text(strip=True),
+            'children': [preserve_dom_structure(child) for child in element.children if isinstance(child, Tag)]
+        }
+    return None
 
 @app.get(
     "/scrape-website",
@@ -114,14 +176,31 @@ async def clone_website(request: ScrapeRequest):
         headings = [h.get_text(strip=True) for h in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])]
         paragraphs = [p.get_text(strip=True) for p in soup.find_all('p') if p.get_text(strip=True)]
         
+        all_styles = extract_all_styles(soup, str(request.url))
+        body = soup.find('body')
+        dom_structure = preserve_dom_structure(body) if body else None
+
+        inline_styles = []
+        for element in soup.find_all(style=True):
+            inline_styles.append({
+                'tag': element.name,
+                'id': element.get('id', ''),
+                'class': ' '.join(element.get('class', [])),
+                'style': element['style']
+            })
+
         model = genai.GenerativeModel('gemini-2.5-flash-preview-05-20')
         
         prompt = CLONE_WEBSITE_PROMPT.format(
+            url=str(request.url),
             title=title,
             headings=headings, 
-            paragraphs=paragraphs  
+            paragraphs=paragraphs,
+            all_styles=all_styles,
+            inline_styles=inline_styles,
+            dom_structure=str(dom_structure)
         )
-        
+
         response = model.generate_content(prompt)
         generated_html = response.text
         
@@ -137,7 +216,7 @@ async def clone_website(request: ScrapeRequest):
         }
         
     except Exception as e:
-        print(e)
+        logging.error(f"Error in clone_website endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
 @app.get("/")
