@@ -63,6 +63,20 @@ export default function ScraperPage() {
     </div>
   );
 };
+  function sanitizeHTML(htmlString: string): string {
+  const tagsToRemove: string[] = ['script', 'style', 'meta', 'link', 'noscript'];
+  let cleanHTML: string = htmlString;
+  
+  tagsToRemove.forEach((tag: string) => {
+    const regex = new RegExp(`<${tag}[^>]*>.*?<\/${tag}>`, 'gis');
+    cleanHTML = cleanHTML.replace(regex, '');
+    // Also remove self-closing tags
+    const selfClosingRegex = new RegExp(`<${tag}[^>]*\/?>`, 'gi');
+    cleanHTML = cleanHTML.replace(selfClosingRegex, '');
+  });
+  
+  return cleanHTML;
+}
 
   const parseHTMLToTree = (html: string): TreeNode[] => {
   const parser = new DOMParser();
@@ -142,24 +156,7 @@ export default function ScraperPage() {
 
   const handleCloneWebsite = async () => {
   if (!urlToScrape) return;
-  
-  setIsCloning(true);
-  try {
-    const response = await fetch('http://127.0.0.1:8000/clone-website', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ url: urlToScrape }),
-    });
-    
-  const data = await response.json();
   router.push(`/results?url=${encodeURIComponent(urlToScrape)}`);
-  } catch (error) {
-    console.error('Error cloning website:', error);
-  } finally {
-    setIsCloning(false);
-  }
 };
 
   return (
@@ -220,7 +217,7 @@ export default function ScraperPage() {
         backgroundColor: '#1e2127',
         borderRadius: '4px'
       }}>
-        {parseHTMLToTree(scrapedContent.raw_html).map((node, index) => (
+        {parseHTMLToTree(sanitizeHTML(scrapedContent.raw_html)).map((node, index) => (
           <TreeView key={index} node={node} />
         ))}
       </div>

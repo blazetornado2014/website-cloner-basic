@@ -40,8 +40,8 @@ Inline Styles: {inline_styles}
 DOM Structure: {dom_structure}
 
 Create a complete HTML document that:
-1. Includes all the CSS styles (in <style> tags)
-2. Preserves the DOM structure and hierarchy
+1. Preserves the DOM structure and hierarchy
+2. Includes all the CSS styles (in <style> tags)
 3. Maintains all inline styles
 4. Keeps the same visual appearance
 """
@@ -114,9 +114,9 @@ def perform_scrape(target_url: str) -> ScrapedPageInfo:
 def compress_css(css_text):
     if not css_text:
         return ""
-    css_text = re.sub(r'/\*.*?\*/', '', css_text, flags=re.DOTALL)  # Remove comments
-    css_text = re.sub(r'\s+', ' ', css_text)  # Remove whitespace
-    css_text = re.sub(r'\s*([{}:;,])\s*', r'\1', css_text)  # Remove spaces
+    css_text = re.sub(r'/\*.*?\*/', '', css_text, flags=re.DOTALL) 
+    css_text = re.sub(r'\s+', ' ', css_text)  
+    css_text = re.sub(r'\s*([{}:;,])\s*', r'\1', css_text)  
     return css_text.strip()
 
 def extract_all_styles(soup, base_url, max_size=99999):
