@@ -1,16 +1,25 @@
 "use client"; 
 
 import { useState, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface ScrapedData {
   requested_url: string;
   title?: string | null;
   headings_h1: string[];
   paragraphs: string[];
+  raw_html?: string;  
 }
 
 interface ApiError {
   detail: string | { msg: string; type: string }[] ; // FastAPI can return simple string or structured errors
+}
+
+interface TreeNode {
+  name: string;
+  children: TreeNode[];
+  attributes?: { [key: string]: string };
+  content?: string;
 }
 
 export default function ScraperPage() {
@@ -18,77 +27,136 @@ export default function ScraperPage() {
   const [scrapedContent, setScrapedContent] = useState<ScrapedData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [llmHtml, setLlmHtml] = useState<string>('');
   const [isCloning, setIsCloning] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const router = useRouter();
+  
+  const TreeView = ({ node, level = 0 }: { node: TreeNode; level?: number }) => {
+  const [isExpanded, setIsExpanded] = useState(level < 2);
+  const hasChildren = node.children && node.children.length > 0;
+  const indent = level * 20;
+  
+  return (
+    <div style={{ marginLeft: `${indent}px`, fontSize: '14px', fontFamily: 'monospace' }}>
+      <div 
+        onClick={() => hasChildren && setIsExpanded(!isExpanded)}
+        style={{ cursor: hasChildren ? 'pointer' : 'default' }}
+      >
+        {hasChildren && <span style={{ marginRight: '5px' }}>{isExpanded ? '▼' : '▶'}</span>}
+        <span style={{ color: '#e06c75' }}>&lt;{node.name}</span>
+        {node.attributes && Object.entries(node.attributes).map(([key, value]) => (
+          <span key={key}>
+            <span style={{ color: '#d19a66' }}> {key}</span>
+            <span style={{ color: '#98c379' }}>="{value}"</span>
+          </span>
+        ))}
+        <span style={{ color: '#e06c75' }}>&gt;</span>
+        {node.content && <span style={{ color: '#abb2bf', marginLeft: '5px' }}>{node.content.substring(0, 50)}...</span>}
+      </div>
+      {isExpanded && hasChildren && (
+        <div>
+          {node.children.map((child, index) => (
+            <TreeView key={index} node={child} level={level + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+  function sanitizeHTML(htmlString: string): string {
+  const tagsToRemove: string[] = ['script', 'style', 'meta', 'link', 'noscript'];
+  let cleanHTML: string = htmlString;
+  
+  tagsToRemove.forEach((tag: string) => {
+    const regex = new RegExp(`<${tag}[^>]*>.*?<\/${tag}>`, 'gis');
+    cleanHTML = cleanHTML.replace(regex, '');
+    // Also remove self-closing tags
+    const selfClosingRegex = new RegExp(`<${tag}[^>]*\/?>`, 'gi');
+    cleanHTML = cleanHTML.replace(selfClosingRegex, '');
+  });
+  
+  return cleanHTML;
+}
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!urlToScrape) {
-      setError('Please enter a URL to scrape.');
-      return;
-    }
-
-    setIsLoading(true);
-    setScrapedContent(null);
-    setError(null);
-
-    const backendApiUrl = process.env.NEXT_PUBLIC_SCRAPER_API_URL || 'http://127.0.0.1:8000';
-
-    try {
-      const response = await fetch(
-        `${backendApiUrl}/scrape-website?url_to_scrape=${encodeURIComponent(urlToScrape)}`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          },
-        }
-      );
-
-      if (!response.ok) {
-        const errorData: ApiError = await response.json();
-        let errorMessage = `Error ${response.status}: `;
-        if (typeof errorData.detail === 'string') {
-          errorMessage += errorData.detail;
-        } else if (Array.isArray(errorData.detail)) {
-          // Handle FastAPI validation errors
-          errorMessage += errorData.detail.map(err => `${err.msg} (for ${ (err as any).loc ? (err as any).loc.join('.') : 'input'})`).join(', ');
-        } else {
-          errorMessage += response.statusText;
-        }
-        throw new Error(errorMessage);
+  const parseHTMLToTree = (html: string): TreeNode[] => {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  
+  const convertNodeToTree = (node: Node): TreeNode | null => {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const element = node as Element;
+      const attributes: { [key: string]: string } = {};
+      
+      for (let i = 0; i < element.attributes.length; i++) {
+        const attr = element.attributes[i];
+        attributes[attr.name] = attr.value;
       }
-
-      const data: ScrapedData = await response.json();
-      setScrapedContent(data);
-    } catch (err: any) {
-      console.error('Scraping failed:', err);
-      setError(err.message || 'An unexpected error occurred. Check the console.');
-    } finally {
-      setIsLoading(false);
+      
+      return {
+        name: element.tagName.toLowerCase(),
+        children: Array.from(element.childNodes).map(convertNodeToTree).filter(Boolean) as TreeNode[],
+        attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
+        content: element.textContent?.trim()
+      };
     }
+    return null;
   };
+  
+  return Array.from(doc.documentElement.childNodes).map(convertNodeToTree).filter(Boolean) as TreeNode[];
+};
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  event.preventDefault();
+  setSuccessMessage(null);
+  if (!urlToScrape) {
+    setError('Please enter a URL to scrape.');
+    return;
+  }
+
+  setIsLoading(true);
+  setScrapedContent(null);
+  setError(null);
+
+  const backendApiUrl = process.env.NEXT_PUBLIC_SCRAPER_API_URL || 'http://127.0.0.1:8000';
+
+  try {
+    const response = await fetch(
+      `${backendApiUrl}/scrape-website?url_to_scrape=${encodeURIComponent(urlToScrape)}`,
+      {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorData: ApiError = await response.json();
+      let errorMessage = `Error ${response.status}: `;
+      if (typeof errorData.detail === 'string') {
+        errorMessage += errorData.detail;
+      } else if (Array.isArray(errorData.detail)) {
+        errorMessage += errorData.detail.map(err => `${err.msg} (for ${ (err as any).loc ? (err as any).loc.join('.') : 'input'})`).join(', ');
+      } else {
+        errorMessage += response.statusText;
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data: ScrapedData = await response.json();
+    setScrapedContent(data); 
+    setSuccessMessage('Scraping successful');
+    setError(null);
+  } catch (err: any) {
+    console.error('Scraping failed:', err);
+    setError(err.message || 'An unexpected error occurred. Check the console.');
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const handleCloneWebsite = async () => {
   if (!urlToScrape) return;
-  
-  setIsCloning(true);
-  try {
-    const response = await fetch('http://127.0.0.1:8000/clone-website', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ url: urlToScrape }),
-    });
-    
-    const data = await response.json();
-    setLlmHtml(data.generated_html);
-  } catch (error) {
-    console.error('Error cloning website:', error);
-  } finally {
-    setIsCloning(false);
-  }
+  router.push(`/results?url=${encodeURIComponent(urlToScrape)}`);
 };
 
   return (
@@ -96,7 +164,7 @@ export default function ScraperPage() {
       <h1>Website Scraper</h1>
       <form onSubmit={handleSubmit} style={{ marginBottom: '20px' }}>
         <input
-          type="url" //basic browser validation
+          type="url" 
           value={urlToScrape}
           onChange={(e) => setUrlToScrape(e.target.value)}
           placeholder="Enter website URL (e.g., https://example.com)"
@@ -125,44 +193,37 @@ export default function ScraperPage() {
           <strong>Error:</strong> {error}
         </div>
       )}
+      {successMessage && (
+  <div style={{ color: 'green', border: '1px solid green', padding: '10px', marginBottom: '20px', borderRadius: '4px', backgroundColor: '#f0fff0' }}>
+    <strong>Success:</strong> {successMessage}
+  </div>
+      )}
 
       {scrapedContent && (
-        <div style={{ border: '1px solid #eee', padding: '15px', borderRadius: '4px', backgroundColor: '#f9f9f9', color: 'black' }}>
-          {scrapedContent.title && <p><strong>Title:</strong> {scrapedContent.title}</p>}
-
-          {scrapedContent.headings_h1 && scrapedContent.headings_h1.length > 0 && (
-            <div>
-              <h3>H1 Headings:</h3>
-              <ul>
-                {scrapedContent.headings_h1.map((h1, index) => (
-                  <li key={`h1-${index}`}>{h1}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {scrapedContent.paragraphs && scrapedContent.paragraphs.length > 0 && (
-            <div>
-              <h3>Paragraphs:</h3>
-              <ul>
-                {scrapedContent.paragraphs.map((p, index) => (
-                  <li key={`p-${index}`}>{p}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {!scrapedContent.title && scrapedContent.headings_h1.length === 0 && scrapedContent.paragraphs.length === 0 && (
-            <p>No specific content (title, H1s, paragraphs) extracted with current selectors.</p>
-          )}
-        </div>
-      )}
-      {llmHtml && (
-  <div className="mt-8">
-    <h2 className="text-xl font-bold mb-4">AI-Generated Version:</h2>
-    <div 
-      className="border p-4 bg-gray-50 rounded"
-      dangerouslySetInnerHTML={{ __html: llmHtml.replace(/```html\n?/g, '').replace(/\n?```/g, '') }}
-    />
+  <div style={{ 
+    border: '1px solid #eee', 
+    padding: '15px', 
+    borderRadius: '4px', 
+    backgroundColor: '#282c34', 
+    color: '#abb2bf' 
+  }}>
+    <h3 style={{ color: '#61dafb' }}>DOM Tree Structure:</h3>
+    {scrapedContent.raw_html ? (
+      <div style={{ 
+        maxHeight: '600px', 
+        overflow: 'auto', 
+        border: '1px solid #444', 
+        padding: '10px', 
+        backgroundColor: '#1e2127',
+        borderRadius: '4px'
+      }}>
+        {parseHTMLToTree(sanitizeHTML(scrapedContent.raw_html)).map((node, index) => (
+          <TreeView key={index} node={node} />
+        ))}
+      </div>
+    ) : (
+      <p>No HTML content available.</p>
+    )}
   </div>
 )}
     </div>
