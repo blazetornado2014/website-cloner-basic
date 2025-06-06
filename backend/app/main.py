@@ -9,6 +9,7 @@ import os
 from dotenv import load_dotenv
 import cssutils
 import logging
+import re
 
 cssutils.log.setLevel(logging.CRITICAL) 
 logging.basicConfig(level=logging.INFO)
@@ -34,24 +35,15 @@ CLONE_WEBSITE_PROMPT = """
 You are an expert web developer who replicates websites with 100% accuracy. Clone this website with all its styles and structure.
 
 Original URL: {url}
-
 CSS Styles Found:{all_styles}  
-
 Inline Styles: {inline_styles}  
-
 DOM Structure: {dom_structure}
-Content:
-Title: {title}
-Headings: {headings}
-Paragraphs: {paragraphs}
 
 Create a complete HTML document that:
 1. Includes all the CSS styles (in <style> tags)
 2. Preserves the DOM structure and hierarchy
 3. Maintains all inline styles
 4. Keeps the same visual appearance
-5. If you cannot find a specific style, use a default style that matches the original as closely as possible.
-6. If you cannot find an image, use a placeholder image.
 """
 
 app = FastAPI(
@@ -80,6 +72,7 @@ class ScrapedPageInfo(BaseModel):
     title: Optional[str] = None
     headings_h1: List[str] = []
     paragraphs: List[str] = []
+    raw_html: Optional[str] = None
 
 def perform_scrape(target_url: str) -> ScrapedPageInfo:
     try:
@@ -97,11 +90,14 @@ def perform_scrape(target_url: str) -> ScrapedPageInfo:
 
         paragraphs = [p.get_text(strip=True) for p in soup.find_all('p')]
 
+        raw_html = str(soup)
+
         return ScrapedPageInfo(
             requested_url=target_url,
             title=title,
             headings_h1=headings_h1,
             paragraphs=paragraphs,
+            raw_html=raw_html,
         )
 
     except requests.exceptions.Timeout:
@@ -115,13 +111,27 @@ def perform_scrape(target_url: str) -> ScrapedPageInfo:
         logging.error(f"An unexpected error occurred while scraping {target_url}: {str(e)}")        
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred during scraping. Please check server logs.")
 
-def extract_all_styles(soup, base_url):
+def compress_css(css_text):
+    if not css_text:
+        return ""
+    css_text = re.sub(r'/\*.*?\*/', '', css_text, flags=re.DOTALL)  # Remove comments
+    css_text = re.sub(r'\s+', ' ', css_text)  # Remove whitespace
+    css_text = re.sub(r'\s*([{}:;,])\s*', r'\1', css_text)  # Remove spaces
+    return css_text.strip()
+
+def extract_all_styles(soup, base_url, max_size=99999):
     """Extract inline styles, style tags, and linked stylesheets"""
     all_css = []
+    current_size = 0
     
     for style_tag in soup.find_all('style'):
         if style_tag.string:
-            all_css.append(style_tag.string)
+            compressed = compress_css(style_tag.string)
+            if compressed and current_size + len(compressed) <= max_size:
+                all_css.append(compressed)
+                current_size += len(compressed)
+            elif current_size >= max_size:
+                break
     
     for link in soup.find_all('link', rel='stylesheet'):
         href = link.get('href')
@@ -134,22 +144,47 @@ def extract_all_styles(soup, base_url):
                 
                 css_response = requests.get(href, timeout=5)
                 if css_response.status_code == 200:
-                    all_css.append(f"/* From {href} */\n{css_response.text}")
+                    compressed = compress_css(css_response.text)
+                    css_with_comment = f"/* {href[:30]}... */{compressed}"
+                    if current_size + len(css_with_comment) <= max_size:
+                        all_css.append(css_with_comment)
+                        current_size += len(css_with_comment)
+                    else:
+                        break
             except:
                 pass
     
     return '\n'.join(all_css)
 
-def preserve_dom_structure(element):
-    """Convert BeautifulSoup element to dict preserving structure"""
-    if isinstance(element, Tag):
-        return {
-            'tag': element.name,
-            'attrs': dict(element.attrs),
-            'text': element.get_text(strip=True),
-            'children': [preserve_dom_structure(child) for child in element.children if isinstance(child, Tag)]
-        }
-    return None
+def preserve_dom_structure_OPTIMIZED(element, max_depth=999, current_depth=0):
+    if not isinstance(element, Tag):
+        return None
+    
+    skip_tags = {'script', 'style', 'meta', 'link', 'noscript', 'br', 'hr'}
+    if element.name in skip_tags:
+        return None
+    
+    attrs = {}
+    preserve_attrs = ['class', 'id', 'viewBox', 'd', 'fill', 'stroke', 'cx', 'cy', 'r', 'x', 'y', 'width', 'height', 'xmlns', 'transform']
+    for attr in preserve_attrs:
+        if element.get(attr):
+            attrs[attr] = element.get(attr)
+    
+    children = []
+    if current_depth < max_depth - 1:
+        child_count = 0
+        for child in element.children:
+            if isinstance(child, Tag):
+                child_data = preserve_dom_structure_OPTIMIZED(child, max_depth, current_depth + 1)
+                if child_data:
+                    children.append(child_data)
+    
+    return {
+        'tag': element.name,
+        'attrs': attrs,
+        'text': element.get_text(strip=True), 
+        'children': children
+    }
 
 @app.get(
     "/scrape-website",
@@ -178,7 +213,7 @@ async def clone_website(request: ScrapeRequest):
         
         all_styles = extract_all_styles(soup, str(request.url))
         body = soup.find('body')
-        dom_structure = preserve_dom_structure(body) if body else None
+        dom_structure = preserve_dom_structure_OPTIMIZED(body) if body else None
 
         inline_styles = []
         for element in soup.find_all(style=True):
@@ -193,9 +228,6 @@ async def clone_website(request: ScrapeRequest):
         
         prompt = CLONE_WEBSITE_PROMPT.format(
             url=str(request.url),
-            title=title,
-            headings=headings, 
-            paragraphs=paragraphs,
             all_styles=all_styles,
             inline_styles=inline_styles,
             dom_structure=str(dom_structure)
