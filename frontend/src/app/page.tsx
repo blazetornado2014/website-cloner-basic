@@ -1,6 +1,7 @@
 "use client"; 
 
 import { useState, FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface ScrapedData {
   requested_url: string;
@@ -13,6 +14,7 @@ interface ApiError {
   detail: string | { msg: string; type: string }[] ; // FastAPI can return simple string or structured errors
 }
 
+
 export default function ScraperPage() {
   const [urlToScrape, setUrlToScrape] = useState<string>('');
   const [scrapedContent, setScrapedContent] = useState<ScrapedData | null>(null);
@@ -20,54 +22,58 @@ export default function ScraperPage() {
   const [error, setError] = useState<string | null>(null);
   const [llmHtml, setLlmHtml] = useState<string>('');
   const [isCloning, setIsCloning] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const router = useRouter();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!urlToScrape) {
-      setError('Please enter a URL to scrape.');
-      return;
-    }
+  event.preventDefault();
+  setSuccessMessage(null);
+  if (!urlToScrape) {
+    setError('Please enter a URL to scrape.');
+    return;
+  }
 
-    setIsLoading(true);
-    setScrapedContent(null);
-    setError(null);
+  setIsLoading(true);
+  setScrapedContent(null);
+  setError(null);
 
-    const backendApiUrl = process.env.NEXT_PUBLIC_SCRAPER_API_URL || 'http://127.0.0.1:8000';
+  const backendApiUrl = process.env.NEXT_PUBLIC_SCRAPER_API_URL || 'http://127.0.0.1:8000';
 
-    try {
-      const response = await fetch(
-        `${backendApiUrl}/scrape-website?url_to_scrape=${encodeURIComponent(urlToScrape)}`,
-        {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          },
-        }
-      );
-
-      if (!response.ok) {
-        const errorData: ApiError = await response.json();
-        let errorMessage = `Error ${response.status}: `;
-        if (typeof errorData.detail === 'string') {
-          errorMessage += errorData.detail;
-        } else if (Array.isArray(errorData.detail)) {
-          // Handle FastAPI validation errors
-          errorMessage += errorData.detail.map(err => `${err.msg} (for ${ (err as any).loc ? (err as any).loc.join('.') : 'input'})`).join(', ');
-        } else {
-          errorMessage += response.statusText;
-        }
-        throw new Error(errorMessage);
+  try {
+    const response = await fetch(
+      `${backendApiUrl}/scrape-website?url_to_scrape=${encodeURIComponent(urlToScrape)}`,
+      {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
       }
+    );
 
-      const data: ScrapedData = await response.json();
-      setScrapedContent(data);
-    } catch (err: any) {
-      console.error('Scraping failed:', err);
-      setError(err.message || 'An unexpected error occurred. Check the console.');
-    } finally {
-      setIsLoading(false);
+    if (!response.ok) {
+      const errorData: ApiError = await response.json();
+      let errorMessage = `Error ${response.status}: `;
+      if (typeof errorData.detail === 'string') {
+        errorMessage += errorData.detail;
+      } else if (Array.isArray(errorData.detail)) {
+        errorMessage += errorData.detail.map(err => `${err.msg} (for ${ (err as any).loc ? (err as any).loc.join('.') : 'input'})`).join(', ');
+      } else {
+        errorMessage += response.statusText;
+      }
+      throw new Error(errorMessage);
     }
-  };
+
+    const data: ScrapedData = await response.json();
+    setScrapedContent(null); 
+    setSuccessMessage('Scraping successful');
+    setError(null);
+  } catch (err: any) {
+    console.error('Scraping failed:', err);
+    setError(err.message || 'An unexpected error occurred. Check the console.');
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const handleCloneWebsite = async () => {
   if (!urlToScrape) return;
@@ -82,8 +88,8 @@ export default function ScraperPage() {
       body: JSON.stringify({ url: urlToScrape }),
     });
     
-    const data = await response.json();
-    setLlmHtml(data.generated_html);
+  const data = await response.json();
+  router.push(`/results?url=${encodeURIComponent(urlToScrape)}`);
   } catch (error) {
     console.error('Error cloning website:', error);
   } finally {
@@ -96,7 +102,7 @@ export default function ScraperPage() {
       <h1>Website Scraper</h1>
       <form onSubmit={handleSubmit} style={{ marginBottom: '20px' }}>
         <input
-          type="url" //basic browser validation
+          type="url" 
           value={urlToScrape}
           onChange={(e) => setUrlToScrape(e.target.value)}
           placeholder="Enter website URL (e.g., https://example.com)"
@@ -124,6 +130,11 @@ export default function ScraperPage() {
         <div style={{ color: 'red', border: '1px solid red', padding: '10px', marginBottom: '20px', borderRadius: '4px' }}>
           <strong>Error:</strong> {error}
         </div>
+      )}
+      {successMessage && (
+  <div style={{ color: 'green', border: '1px solid green', padding: '10px', marginBottom: '20px', borderRadius: '4px', backgroundColor: '#f0fff0' }}>
+    <strong>Success:</strong> {successMessage}
+  </div>
       )}
 
       {scrapedContent && (
@@ -156,15 +167,6 @@ export default function ScraperPage() {
           )}
         </div>
       )}
-      {llmHtml && (
-  <div className="mt-8">
-    <h2 className="text-xl font-bold mb-4">AI-Generated Version:</h2>
-    <div 
-      className="border p-4 bg-gray-50 rounded"
-      dangerouslySetInnerHTML={{ __html: llmHtml.replace(/```html\n?/g, '').replace(/\n?```/g, '') }}
-    />
-  </div>
-)}
     </div>
   );
 }
