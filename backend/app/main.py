@@ -36,7 +36,6 @@ You are an expert web developer who replicates websites with 100% accuracy. Clon
 
 Original URL: {url}
 CSS Styles Found:{all_styles}  
-Inline Styles: {inline_styles}  
 DOM Structure: {dom_structure}
 
 Create a complete HTML document that:
