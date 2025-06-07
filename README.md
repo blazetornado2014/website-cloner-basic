@@ -41,3 +41,19 @@ To start the frontend development server, run:
 ```bash
 npm run dev
 ```
+
+### LLM Support
+
+This project works with the Gemini 2.5 Flash. Create an empty .env file at \orchids-challenge\backend\app which needs to be populated with an API key.
+
+File content:
+GEMINI_API_KEY=insert your api key here
+
+To get your API key, follow this link and select Create API Key
+https://aistudio.google.com/app/apikey 
+
+### Features TBA
+    - Image support
+    - Sharper prompts and accurate results
+    - Improved Web Scraping to tackle big websites like Youtube
+    - JavaScript cloning, dynamic elements
