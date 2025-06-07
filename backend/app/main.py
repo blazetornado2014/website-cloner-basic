@@ -232,8 +232,12 @@ async def clone_website(request: ScrapeRequest):
             dom_structure=str(dom_structure)
         )
 
-        response = model.generate_content(prompt)
-        generated_html = response.text
+        try:
+            response = model.generate_content(prompt)
+            generated_html = response.text
+        except Exception as gemini_error:
+            logging.error(f"Gemini API error: {gemini_error}")
+            raise HTTPException(status_code=500, detail=f"Gemini AI failed: {str(gemini_error)}")
         
         return {
             "success": True,
