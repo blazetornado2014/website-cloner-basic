@@ -44,7 +44,7 @@ npm run dev
 
 ### LLM Support
 
-This project works with the Gemini 2.5 Flash. Create an empty .env file has been provided at \orchids-challenge\backend\app which needs to be populated with an API key.
+This project works with the Gemini 2.5 Flash. Create an empty .env file at \orchids-challenge\backend\app which needs to be populated with an API key.
 
 File content:
 GEMINI_API_KEY=insert your api key here
