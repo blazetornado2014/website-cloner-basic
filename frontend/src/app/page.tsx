@@ -27,7 +27,6 @@ export default function ScraperPage() {
   const [scrapedContent, setScrapedContent] = useState<ScrapedData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [isCloning, setIsCloning] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const router = useRouter();
   
@@ -42,7 +41,8 @@ export default function ScraperPage() {
         onClick={() => hasChildren && setIsExpanded(!isExpanded)}
         style={{ cursor: hasChildren ? 'pointer' : 'default' }}
       >
-        {hasChildren && <span style={{ marginRight: '5px' }}>{isExpanded ? '▼' : '▶'}</span>}
+        {hasChildren && <span style={{ marginRight: '5px' }}>
+          {isExpanded ? '▼' : '▶'}</span>}
         <span style={{ color: '#e06c75' }}>&lt;{node.name}</span>
         {node.attributes && Object.entries(node.attributes).map(([key, value]) => (
           <span key={key}>
@@ -96,8 +96,12 @@ export default function ScraperPage() {
         name: element.tagName.toLowerCase(),
         children: Array.from(element.childNodes).map(convertNodeToTree).filter(Boolean) as TreeNode[],
         attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
-        content: element.textContent?.trim()
-      };
+        content: Array.from(element.childNodes)
+          .filter(node => node.nodeType === Node.TEXT_NODE)
+          .map(node => node.textContent?.trim() || '')
+          .filter(text => text.length > 0)
+          .join(' ') || ''
+              };
     }
     return null;
   };
@@ -180,11 +184,10 @@ export default function ScraperPage() {
         </button>
         <button
   onClick={handleCloneWebsite}
-  disabled={isCloning}
   type="button"
   className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-green-300"
 >
-  {isCloning ? 'Generating with AI...' : 'Clone with AI'}
+  {'Clone with AI'}
 </button>
       </form>
 
