@@ -63,20 +63,33 @@ export default function ScraperPage() {
     </div>
   );
 };
-  function sanitizeHTML(htmlString: string): string {
-  const tagsToRemove: string[] = ['script', 'style', 'meta', 'link', 'noscript'];
-  let cleanHTML: string = htmlString;
+   function sanitizeHTML(htmlString: string, urlToScrape: string): string {
+   const tagsToRemove: string[] = ['meta', 'noscript'];
+   let cleanHTML: string = htmlString;
   
-  tagsToRemove.forEach((tag: string) => {
-    const regex = new RegExp(`<${tag}[^>]*>.*?<\/${tag}>`, 'gis');
-    cleanHTML = cleanHTML.replace(regex, '');
-    // Also remove self-closing tags
-    const selfClosingRegex = new RegExp(`<${tag}[^>]*\/?>`, 'gi');
-    cleanHTML = cleanHTML.replace(selfClosingRegex, '');
-  });
+   //Cover Image paths
+   cleanHTML = cleanHTML.replace(/src="\/assets\//g, `src="${urlToScrape}/assets/`);
+   cleanHTML = cleanHTML.replace(/href="\/assets\//g, `href="${urlToScrape}/assets/`);
+   cleanHTML = cleanHTML.replace(/url\(\/assets\//g, `url(${urlToScrape}/assets/`);
+
+   cleanHTML = cleanHTML.replace(/src="\//g, `src="${urlToScrape}/`);
+   cleanHTML = cleanHTML.replace(/href="\//g, `href="${urlToScrape}/`);
+   cleanHTML = cleanHTML.replace(/url\(\//g, `url(${urlToScrape}/`);
+   
+   //Cover video paths
+   cleanHTML = cleanHTML.replace(/src="\/videos\//g, `src="${urlToScrape}/videos/`);
+   cleanHTML = cleanHTML.replace(/href="\/videos\//g, `href="${urlToScrape}/videos/`);
+   cleanHTML = cleanHTML.replace(/url\(\/videos\//g, `url(${urlToScrape}/videos/`);
+
+   tagsToRemove.forEach((tag: string) => {
+     const regex = new RegExp(`<${tag}[^>]*>.*?<\/${tag}>`, 'gis');
+     cleanHTML = cleanHTML.replace(regex, '');
+     const selfClosingRegex = new RegExp(`<${tag}[^>]*\/?>`, 'gi');
+     cleanHTML = cleanHTML.replace(selfClosingRegex, '');
+   });
   
-  return cleanHTML;
-}
+   return cleanHTML;
+ }
 
   const parseHTMLToTree = (html: string): TreeNode[] => {
   const parser = new DOMParser();
@@ -220,7 +233,7 @@ export default function ScraperPage() {
         backgroundColor: '#1e2127',
         borderRadius: '4px'
       }}>
-        {parseHTMLToTree(sanitizeHTML(scrapedContent.raw_html)).map((node, index) => (
+        {parseHTMLToTree(sanitizeHTML(scrapedContent.raw_html, urlToScrape)).map((node, index) => (
           <TreeView key={index} node={node} />
         ))}
       </div>

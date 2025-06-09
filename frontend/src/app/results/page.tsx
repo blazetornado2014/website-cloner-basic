@@ -9,6 +9,19 @@ export default function ResultsPage() {
   const [generatedHtml, setGeneratedHtml] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
+  const processImageUrls = (html: string) => {
+  return html
+    .replace(
+      /src="https:\/\/www\.orchids\.app\/_next\/image\?url=([^"&]+)(?:&[^"]*)?"/g,
+      (match, encodedUrl) => {
+        const decodedUrl = decodeURIComponent(encodedUrl);
+        return `src="${decodedUrl}"`;
+      }
+    )
+    .replace(/src="([^"]*?)&amp;w=\d+&amp;q=\d+"/g, 'src="$1"')
+    .replace(/&amp;/g, '&'); 
+};
+
   useEffect(() => {
     const fetchGeneratedHtml = async () => {
       if (!url) return;
@@ -57,8 +70,8 @@ export default function ResultsPage() {
         <div 
           className="w-full h-full overflow-auto"
           dangerouslySetInnerHTML={{ 
-            __html: generatedHtml.replace(/```html\n?/g, '').replace(/\n?```/g, '') 
-          }}
+            __html: processImageUrls(generatedHtml.replace(/```html\n?/g, '').replace(/\n?```/g, '') 
+      )}}
         />
       )
     )}

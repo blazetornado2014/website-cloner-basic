@@ -43,6 +43,9 @@ Create a complete HTML document that:
 2. Includes all the CSS styles (in <style> tags)
 3. Maintains all inline styles
 4. Keeps the same visual appearance
+5. Copy and paste all <img> tags with src 
+
+Return just the complete HTML document and nothing else.
 """
 
 app = FastAPI(
@@ -136,7 +139,6 @@ def extract_all_styles(soup, base_url, max_size=99999):
         href = link.get('href')
         if href:
             try:
-                # Handle relative URLs
                 if not href.startswith(('http://', 'https://')):
                     from urllib.parse import urljoin
                     href = urljoin(base_url, href)
@@ -206,10 +208,6 @@ async def clone_website(request: ScrapeRequest):
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        title = soup.find('title').get_text(strip=True) if soup.find('title') else "Untitled"
-        headings = [h.get_text(strip=True) for h in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])]
-        paragraphs = [p.get_text(strip=True) for p in soup.find_all('p') if p.get_text(strip=True)]
-        
         all_styles = extract_all_styles(soup, str(request.url))
         body = soup.find('body')
         dom_structure = preserve_dom_structure_OPTIMIZED(body) if body else None
@@ -243,11 +241,6 @@ async def clone_website(request: ScrapeRequest):
             "success": True,
             "original_url": request.url,
             "generated_html": generated_html,
-            "original_content": {
-                "title": title,
-                "headings": headings,
-                "paragraphs": paragraphs
-            }
         }
         
     except Exception as e:
